@@ -1107,7 +1107,7 @@
         }
 
 
-        /* ===== Select Topics + Exam (multi-select UI) ===== */
+        /* ===== Select Topics (Learning Mode multi-select) ===== */
         .lm-setup { padding: 26px; }
         .lm-back { display:inline-flex; align-items:center; gap:6px; background:var(--nbme-header-bot); color:#fff;
             border:none; border-radius:12px; padding:10px 18px; font-weight:700; font-size:0.95em; cursor:pointer;
@@ -1148,11 +1148,11 @@
         .lm-start:hover:not(:disabled){ background:var(--nbme-header-top); transform:translateY(-1px); }
         .lm-start:disabled { opacity:.45; cursor:not-allowed; box-shadow:none; }
         .lm-section-label { font-weight:800; color:var(--nbme-header-bot); font-size:0.78em; letter-spacing:.08em; text-transform:uppercase; margin:0 0 12px; }
-        /* Hide topbar branding & Visit Us (kept in DOM for integrity check) */
+        /* ===== Hide topbar branding & Visit Us (elements kept in DOM for integrity check) ===== */
         .topbar .brand { display: none !important; }
         .topbar .actions .btn-visit { display: none !important; }
         .topbar .topbar-left { flex: 0 0 auto; }
-            /* ===== Reverse-color (high-contrast) readability fixes ===== */
+        /* ===== Reverse-color (high-contrast) readability fixes ===== */
         .nbme-skin.nbme-reverse .answer-option:hover:not(.disabled):not(.correct):not(.incorrect):not(.eliminated),
         .nbme-skin.uw-skin.nbme-reverse .answer-option:hover:not(.disabled):not(.correct):not(.incorrect):not(.eliminated) { background: #2a2f3a !important; }
         .nbme-skin.uw-skin.nbme-reverse .answer-option .option-letter { color: #f1f1f1 !important; }
@@ -1165,7 +1165,7 @@
         .nbme-skin.uw-skin.nbme-reverse .commentary h4 { color: #5bb8ff !important; }
         .nbme-skin.uw-skin.nbme-reverse .answer-option.eliminated .option-text,
         .nbme-skin.uw-skin.nbme-reverse .answer-option.eliminated .option-text * { color: #8a93a0 !important; }
-        /* ===== Explanation blends into background, no box ===== */
+        /* ===== Explanation blends into background, no box (Form 31) ===== */
         .commentary,
         .nbme-skin .commentary,
         .nbme-skin.uw-skin .commentary,
@@ -1472,38 +1472,37 @@
             return window.location.protocol === 'file:';
         }
 
-        function showStartupError(message) {
+        function showStartupError(error) {
             const splash = document.getElementById("ma-splash-overlay");
             if (!splash) return;
-
-            const card = splash.querySelector(".ma-splash-card");
-            if (!card) return;
-
-            card.innerHTML = `
-                <img src="assets/Data/medicine-logo-splash.png" alt="Medicine Academy" class="ma-splash-logo">
-                <h1>Medicine Academy</h1>
-                <p>${message}</p>
-                <p style="font-size: 0.85rem; margin-top: 0.75rem;">
-                    Double-click <strong>Mac_Users_Click.command</strong> in this folder instead.
-                </p>
+            const message = error && error.message ? error.message : String(error || "Unknown startup error");
+            splash.innerHTML = `
+                <div class="ma-splash-box">
+                    <div class="title">Open with the launcher</div>
+                    <div class="subtitle" style="line-height:1.5">
+                        Chrome blocked part of the local NBME engine.<br>
+                        Double-click <strong>Start NBME BS 31.command</strong> in this folder instead.
+                    </div>
+                    <div style="margin-top:16px; font-size:11px; color:#64748b; word-break:break-word;">${message}</div>
+                </div>
             `;
         }
 
         async function initSQL() {
-            if (SQL) return;
-
-            try {
-                const sqlConfig = { locateFile: f => `assets/js/${f}` };
-
-                if (isDirectFileLaunch() && window.NBME_LOCAL_ASSETS) {
-                    sqlConfig.wasmBinary = window.NBME_LOCAL_ASSETS.getWasmBinary();
+            if (!SQL) {
+                try {
+                    const sqlConfig = { locateFile: f => `assets/js/${f}` };
+                    if (isDirectFileLaunch() && window.NBME_LOCAL_ASSETS) {
+                        sqlConfig.wasmBinary = window.NBME_LOCAL_ASSETS.getWasmBinary();
+                    }
+                    SQL = await initSqlJs(sqlConfig);
+                } catch (e) {
+                    console.error("Failed to init SQL.js", e);
+                    showStartupError(e);
+                    throw e;
                 }
-
-                SQL = await initSqlJs(sqlConfig);
-            } catch (e) {
-                console.error("Failed to init SQL.js", e);
-                throw e;
             }
+            return SQL;
         }
 
         document.addEventListener("DOMContentLoaded", async () => {
@@ -1511,8 +1510,7 @@
             const startTime = Date.now();
             try {
                 await initSQL();
-            } catch (error) {
-                showStartupError("Could not load the local question engine.");
+            } catch (e) {
                 return;
             }
             const elapsed = Date.now() - startTime;
@@ -1829,6 +1827,9 @@
 /* Also hide the splash overlay's Medicine Academy title (the splash itself
    stays so the load animation still plays) — only the brand text disappears */
 .ma-splash-box .title { display: none !important; }
+
+
+    
  in the question header
    (no text labels, no counter). Overrides the older .uw-nav-btn style. */
 .uw-nav-btn {
@@ -1883,12 +1884,11 @@
 
         // --- Core Database & Tree Logic ---
         async function loadCategoriesStructure() {
+            if (isDirectFileLaunch() && window.NBME_LOCAL_ASSETS && window.NBME_LOCAL_ASSETS.categories) {
+                categoriesStructure = window.NBME_LOCAL_ASSETS.categories.categories || [];
+                return;
+            }
             try {
-                if (isDirectFileLaunch() && window.NBME_LOCAL_ASSETS && window.NBME_LOCAL_ASSETS.categories) {
-                    categoriesStructure = window.NBME_LOCAL_ASSETS.categories.categories || [];
-                    return;
-                }
-
                 const response = await fetch('assets/Data/categories.json');
                 if (response.ok) {
                     const data = await response.json();
@@ -1911,20 +1911,17 @@
             }
             try {
                 await initSQL();
-                const dbPath = `assets/Data/${path}/data.db`;
                 let databaseBytes = null;
-
                 if (isDirectFileLaunch() && window.NBME_LOCAL_ASSETS) {
                     databaseBytes = window.NBME_LOCAL_ASSETS.getDatabaseBinary(path);
                 }
-
                 if (!databaseBytes) {
+                    const dbPath = `assets/Data/${path}/data.db`;
                     const response = await fetch(dbPath);
                     if (!response.ok) throw new Error();
                     const buffer = await response.arrayBuffer();
                     databaseBytes = new Uint8Array(buffer);
                 }
-
                 const db = new SQL.Database(databaseBytes);
                 databases[cacheKey] = db;
                 currentDatabase = db;
@@ -2128,11 +2125,10 @@
 
         // ===== Select Topics (Learning Mode multi-select, added) =====
         const FORM_DB_PATH = "Comprehensive Basic Science Self-Assessment - Form 31";
-        const DISCIPLINE_MAP = {"652481":"Pathology","652482":"Pathology","652483":"Gross Anatomy & Embryology","652485":"Genetics","652486":"Gross Anatomy & Embryology","652487":"Pathology","652488":"Biochemistry & Nutrition","652489":"Pathology","652490":"Microbiology","652491":"Pharmacology","652492":"Pathology","652493":"Behavioral Sciences","652494":"Histology & Cell Biology","652495":"Genetics","652496":"Physiology","652497":"Biochemistry & Nutrition","652498":"Physiology","652499":"Physiology","652500":"Immunology","652501":"Pathology","652502":"Physiology","652503":"Histology & Cell Biology","652504":"Physiology","652505":"Biochemistry & Nutrition","652506":"Pathology","652507":"Immunology","652508":"Immunology","652509":"Pharmacology","652510":"Pathology","652511":"Gross Anatomy & Embryology","652512":"Genetics","652513":"Behavioral Sciences","652514":"Pathology","652515":"Behavioral Sciences","652516":"Pathology","652517":"Gross Anatomy & Embryology","652518":"Genetics","652519":"Gross Anatomy & Embryology","652520":"Behavioral Sciences","652521":"Pathology","652522":"Immunology","652523":"Gross Anatomy & Embryology","652524":"Behavioral Sciences","652525":"Gross Anatomy & Embryology","652526":"Gross Anatomy & Embryology","652527":"Gross Anatomy & Embryology","652528":"Pharmacology","652529":"Pharmacology","652530":"Pharmacology","652531":"Pathology","652532":"Immunology","652533":"Physiology","652534":"Biochemistry & Nutrition","652535":"Behavioral Sciences","652536":"Pharmacology","652537":"Pathology","652538":"Pathology","652539":"Behavioral Sciences","652540":"Pharmacology","652541":"Pathology","652542":"Pharmacology","652543":"Pathology","652544":"Biochemistry & Nutrition","652545":"Pharmacology","652546":"Pathology","652547":"Physiology","652548":"Pharmacology","652549":"Biochemistry & Nutrition","652550":"Physiology","652551":"Immunology","652552":"Pathology","652553":"Biochemistry & Nutrition","652554":"Biochemistry & Nutrition","652555":"Gross Anatomy & Embryology","652556":"Pathology","652557":"Physiology","652558":"Biochemistry & Nutrition","652559":"Pharmacology","652560":"Pharmacology","652561":"Pathology","652562":"Behavioral Sciences","652563":"Biochemistry & Nutrition","652564":"Pharmacology","652565":"Pathology","652566":"Microbiology","652567":"Behavioral Sciences","652568":"Physiology","652569":"Behavioral Sciences","652570":"Immunology","652571":"Microbiology","652572":"Histology & Cell Biology","652573":"Pharmacology","652574":"Physiology","652575":"Physiology","652576":"Genetics","652577":"Physiology","652578":"Histology & Cell Biology","652579":"Microbiology","652580":"Pathology","652581":"Physiology","652582":"Behavioral Sciences","652583":"Pathology","652584":"Physiology","652585":"Gross Anatomy & Embryology","652586":"Immunology","652587":"Physiology","652588":"Microbiology","652589":"Pathology","652590":"Behavioral Sciences","652591":"Biochemistry & Nutrition","652592":"Pathology","652593":"Pathology","652594":"Pathology","652595":"Pathology","652596":"Pathology","652597":"Pathology","652598":"Pathology","652599":"Pathology","652600":"Microbiology","652601":"Pathology","652602":"Gross Anatomy & Embryology","652603":"Immunology","652604":"Physiology","652605":"Microbiology","652606":"Physiology","652608":"Pathology","652609":"Gross Anatomy & Embryology","652610":"Immunology","652611":"Behavioral Sciences","652612":"Biochemistry & Nutrition","652613":"Pharmacology","652614":"Pharmacology","652615":"Gross Anatomy & Embryology","652616":"Behavioral Sciences","652617":"Microbiology","652618":"Gross Anatomy & Embryology","652619":"Behavioral Sciences","652620":"Pathology","652621":"Biochemistry & Nutrition","652622":"Microbiology","652623":"Pathology","652624":"Pharmacology","652625":"Physiology","652626":"Pathology","652627":"Biochemistry & Nutrition","652628":"Gross Anatomy & Embryology","652629":"Behavioral Sciences","652630":"Physiology","652631":"Gross Anatomy & Embryology","652632":"Gross Anatomy & Embryology","652633":"Gross Anatomy & Embryology","652634":"Genetics","652635":"Physiology","652636":"Pharmacology","652637":"Histology & Cell Biology","652638":"Biochemistry & Nutrition","652639":"Physiology","652640":"Pathology","652641":"Physiology","652642":"Pharmacology","652643":"Biochemistry & Nutrition","652644":"Behavioral Sciences","652645":"Behavioral Sciences","652646":"Pathology","652647":"Behavioral Sciences","652648":"Pharmacology","652649":"Pathology","652650":"Immunology","652651":"Immunology","652652":"Pathology","652653":"Microbiology","652654":"Biochemistry & Nutrition","652655":"Behavioral Sciences","652656":"Pathology","652657":"Behavioral Sciences","652658":"Physiology","652659":"Pathology","652660":"Behavioral Sciences","652661":"Pharmacology","652662":"Behavioral Sciences","652663":"Behavioral Sciences","652664":"Pathology","652665":"Pathology","652666":"Gross Anatomy & Embryology","652667":"Gross Anatomy & Embryology","652668":"Pathology","652669":"Biochemistry & Nutrition","652670":"Physiology","652671":"Immunology","652672":"Immunology","652673":"Pathology","652674":"Pharmacology","652675":"Microbiology","652676":"Microbiology","652677":"Pharmacology","652678":"Gross Anatomy & Embryology","652679":"Pharmacology","652680":"Pathology"};
+        const DISCIPLINE_MAP = {"526705":"Immunology","526706":"Biochemistry & Nutrition","526707":"Pathology","526708":"Histology & Cell Biology","526709":"Physiology","526710":"Gross Anatomy & Embryology","526711":"Pathology","526712":"Physiology","526713":"Pharmacology","526714":"Physiology","526715":"Pharmacology","526716":"Pharmacology","526717":"Pathology","526718":"Physiology","526719":"Microbiology","526720":"Gross Anatomy & Embryology","526721":"Pathology","526722":"Physiology","526723":"Behavioral Sciences","526724":"Physiology","526725":"Pathology","526726":"Microbiology","526727":"Behavioral Sciences","526728":"Gross Anatomy & Embryology","526729":"Biochemistry & Nutrition","526730":"Behavioral Sciences","526731":"Pharmacology","526732":"Gross Anatomy & Embryology","526733":"Pharmacology","526734":"Pathology","526735":"Gross Anatomy & Embryology","526736":"Biochemistry & Nutrition","526737":"Biochemistry & Nutrition","526738":"Pathology","526739":"Pathology","526740":"Pharmacology","526741":"Behavioral Sciences","526742":"Behavioral Sciences","526743":"Microbiology","526744":"Gross Anatomy & Embryology","526745":"Behavioral Sciences","526746":"Microbiology","526747":"Microbiology","526748":"Immunology","526749":"Pathology","526750":"Physiology","526751":"Gross Anatomy & Embryology","526752":"Pathology","526753":"Pathology","526754":"Immunology","526755":"Genetics","526756":"Physiology","526757":"Pathology","526758":"Biochemistry & Nutrition","526759":"Behavioral Sciences","526760":"Microbiology","526761":"Pharmacology","526762":"Gross Anatomy & Embryology","526763":"Pathology","526764":"Gross Anatomy & Embryology","526765":"Physiology","526766":"Pharmacology","526767":"Physiology","526768":"Biochemistry & Nutrition","526769":"Biochemistry & Nutrition","526770":"Pathology","526771":"Behavioral Sciences","526772":"Pharmacology","526773":"Physiology","526774":"Pathology","526775":"Biochemistry & Nutrition","526776":"Biochemistry & Nutrition","526777":"Microbiology","526778":"Gross Anatomy & Embryology","526779":"Physiology","526780":"Behavioral Sciences","526781":"Pharmacology","526782":"Behavioral Sciences","526783":"Gross Anatomy & Embryology","526784":"Pathology","526785":"Microbiology","526786":"Microbiology","526787":"Pathology","526788":"Physiology","526789":"Behavioral Sciences","526790":"Pharmacology","526791":"Gross Anatomy & Embryology","526792":"Behavioral Sciences","526793":"Immunology","526794":"Pathology","526795":"Behavioral Sciences","526796":"Gross Anatomy & Embryology","526797":"Immunology","526798":"Pathology","526799":"Biochemistry & Nutrition","526800":"Pathology","526801":"Physiology","526802":"Pharmacology","526803":"Pathology","526804":"Gross Anatomy & Embryology","526805":"Histology & Cell Biology","526806":"Pathology","526807":"Microbiology","526808":"Behavioral Sciences","526809":"Pathology","526810":"Gross Anatomy & Embryology","526811":"Immunology","526812":"Behavioral Sciences","526813":"Biochemistry & Nutrition","526814":"Pathology","526815":"Pathology","526816":"Pathology","526817":"Pharmacology","526818":"Immunology","526819":"Behavioral Sciences","526820":"Pharmacology","526821":"Biochemistry & Nutrition","526822":"Pathology","526823":"Microbiology","526824":"Pharmacology","526825":"Pathology","526826":"Biochemistry & Nutrition","526827":"Physiology","526828":"Physiology","526829":"Biochemistry & Nutrition","526830":"Pharmacology","526831":"Biochemistry & Nutrition","526832":"Immunology","526833":"Gross Anatomy & Embryology","526834":"Physiology","526835":"Behavioral Sciences","526836":"Pharmacology","526837":"Pathology","526838":"Pathology","526839":"Pharmacology","526840":"Gross Anatomy & Embryology","526841":"Biochemistry & Nutrition","526842":"Biochemistry & Nutrition","526843":"Behavioral Sciences","526844":"Pharmacology","526845":"Physiology","526846":"Behavioral Sciences","526847":"Pathology","526848":"Microbiology","526849":"Histology & Cell Biology","526850":"Pathology","526851":"Gross Anatomy & Embryology","526852":"Pathology","526853":"Pharmacology","526854":"Pathology","526855":"Pathology","526856":"Behavioral Sciences","526857":"Physiology","526858":"Pathology","526859":"Pathology","526860":"Behavioral Sciences","526861":"Biochemistry & Nutrition","526862":"Behavioral Sciences","526863":"Physiology","526864":"Physiology","526865":"Physiology","526866":"Immunology","526867":"Histology & Cell Biology","526868":"Gross Anatomy & Embryology","526869":"Pathology","526870":"Pharmacology","526871":"Pharmacology","526872":"Pathology","526873":"Pharmacology","526874":"Gross Anatomy & Embryology","526875":"Pathology","526876":"Pharmacology","526877":"Physiology","526878":"Pharmacology","526879":"Pathology","526880":"Pathology","526881":"Biochemistry & Nutrition","526882":"Pathology","526883":"Pharmacology","526884":"Physiology","526885":"Behavioral Sciences","526886":"Gross Anatomy & Embryology","526887":"Pharmacology","526888":"Pathology","526889":"Gross Anatomy & Embryology","526890":"Pathology","526891":"Pharmacology","526892":"Pathology","526893":"Pathology","526894":"Biochemistry & Nutrition","526895":"Pathology","526896":"Pathology","526897":"Immunology","526898":"Genetics","526899":"Gross Anatomy & Embryology","526900":"Physiology","526901":"Behavioral Sciences","526902":"Microbiology","526903":"Pathology","526904":"Pathology"};
         const DISCIPLINE_DEFS = [{"name": "Pathology", "range": "45-55"}, {"name": "Physiology", "range": "30-40"}, {"name": "Pharmacology", "range": "10-20"}, {"name": "Biochemistry & Nutrition", "range": "5-15"}, {"name": "Microbiology", "range": "10-20"}, {"name": "Immunology", "range": "5-15"}, {"name": "Gross Anatomy & Embryology", "range": "10-20"}, {"name": "Histology & Cell Biology", "range": "5-15"}, {"name": "Behavioral Sciences", "range": "10-15"}, {"name": "Genetics", "range": "5-10"}];
-        const DISCIPLINE_NOTE = "Questions are grouped by the discipline each item primarily tests. Counts reflect this Form 31 set (198 items) and need not match the USMLE blueprint ranges, which are overlapping content axes.";
 
-        let lmView = 'block';
+        let lmView = 'discipline';
         let lmSel = { discipline: new Set(), block: new Set() };
         let lmBlocks = [];
 
@@ -2178,7 +2174,7 @@
             const note = document.getElementById('lm-note');
             grid.innerHTML = '';
             if (lmView === 'discipline') {
-                note.textContent = DISCIPLINE_NOTE;
+                note.textContent = 'This Form 31 viewer contains 199 questions extracted from the Medicine Academy Chrome session. Correct answers and full explanations were not exposed by the capture.';
                 note.style.display = 'block';
                 const counts = disciplineCounts();
                 DISCIPLINE_DEFS.forEach(d => {
@@ -2188,7 +2184,7 @@
             } else {
                 note.style.display = 'none';
                 lmBlocks.forEach(b => {
-                    grid.appendChild(lmRow('block', String(b.id), b.name, b.count + '-item block', b.count, b.count === 0));
+                    grid.appendChild(lmRow('block', String(b.id), b.name, '50-item exam block', b.count, b.count === 0));
                 });
             }
         }
@@ -2300,7 +2296,7 @@
             const note = document.getElementById('ex-note');
             grid.innerHTML = '';
             if (exView === 'discipline') {
-                note.textContent = DISCIPLINE_NOTE;
+                note.textContent = 'This Form 31 viewer contains 199 questions extracted from the Medicine Academy Chrome session. Correct answers and full explanations were not exposed by the capture.';
                 note.style.display = 'block';
                 const counts = disciplineCounts();
                 DISCIPLINE_DEFS.forEach(d => {
@@ -2310,7 +2306,7 @@
             } else {
                 note.style.display = 'none';
                 lmBlocks.forEach(b => {
-                    grid.appendChild(exRow('block', String(b.id), b.name, b.count + '-item block', b.count, b.count === 0));
+                    grid.appendChild(exRow('block', String(b.id), b.name, '50-item exam block', b.count, b.count === 0));
                 });
             }
         }
@@ -2452,9 +2448,11 @@
             }
         }
 
+
         function updateSelectedInfo() {
             if (typeof exUpdateBar === 'function' && document.getElementById('ex-grid')) { try { exUpdateBar(); } catch(e){} }
         }
+
         document.getElementById('num-questions').addEventListener('input', function() { document.getElementById('total-time').value = parseInt(this.value) || 0; });
 
         document.getElementById('start-exam-btn').addEventListener('click', async () => {
