@@ -3404,7 +3404,7 @@ img.option-image:hover,
                     const idx = currentQuestionIndex + 1;
                     html = `
                     <div class="uw-header">
-                        <div class="uw-header-left"><div class="uw-header-left-name">NBME 31</div>
+                        <div class="uw-header-left"><div class="uw-header-left-name">NBME 31${maSecsSuffix()}</div>
                             <div class="uw-header-left-title">Question</div>
                         </div>
                         <div class="uw-header-iteminfo">
@@ -3474,7 +3474,7 @@ img.option-image:hover,
                     const idx = currentQuestionIndex + 1;
                     html = `
                     <div class="uw-header">
-                        <div class="uw-header-left"><div class="uw-header-left-name">NBME 31</div>
+                        <div class="uw-header-left"><div class="uw-header-left-name">NBME 31${maSecsSuffix()}</div>
                             <div class="uw-header-left-title">Question</div>
                         </div>
                         <div class="uw-header-iteminfo">
@@ -6448,6 +6448,44 @@ html.ma-phone #highlight-palette {
     }
     watch('ma-hl-palette');
     watch('highlight-palette');
+})();
+</script>
+
+<!-- ma-header-sections (2026-07-21): the top-left name box also lists which of
+     this viewer's blocks are in the current session ("Blocks 1/2"; phone
+     shows the short "Bl." form). GROUPS baked from the data.db Subjects table at patch
+     time (header_secs_fleet.py). The suffix derives from the LIVE session ids
+     (currentQuestions), so it holds for picker selections, discipline/system
+     picks, shuffled exam blocks, and resumed sessions alike. Full coverage or
+     a single group -> no suffix. -->
+<style id="ma-header-secs-css">
+.ma-secs-short { display: none; }
+html.ma-phone .ma-secs-long { display: none; }
+html.ma-phone .ma-secs-short { display: inline; }
+</style>
+<script id="ma-header-secs-js">
+(function () {
+    if (window.maSecsSuffix) return;   /* double-insertion sentinel */
+    var GROUPS = [{"n":"1","ids":[652581,652582,652583,652584,652585,652586,652587,652588,652589,652590,652591,652592,652593,652594,652595,652596,652597,652598,652599,652600,652601,652602,652603,652604,652605,652606,652608,652609,652610,652611,652612,652613,652614,652615,652616,652617,652618,652619,652620,652621,652622,652623,652624,652625,652626,652627,652628,652629,652630]},{"n":"2","s":652631,"e":652680},{"n":"3","s":652531,"e":652580},{"n":"4","ids":[652481,652482,652483,652485,652486,652487,652488,652489,652490,652491,652492,652493,652494,652495,652496,652497,652498,652499,652500,652501,652502,652503,652504,652505,652506,652507,652508,652509,652510,652511,652512,652513,652514,652515,652516,652517,652518,652519,652520,652521,652522,652523,652524,652525,652526,652527,652528,652529,652530]}];
+    var UNIT = "Block", UNIT_SHORT = "Bl.";
+    window.maSecsSuffix = function () {
+        try {
+            var qs = (typeof currentQuestions !== 'undefined' && currentQuestions) ? currentQuestions : [];
+            if (!qs.length || GROUPS.length < 2) return '';
+            var present = [];
+            for (var i = 0; i < GROUPS.length; i++) {
+                var g = GROUPS[i];
+                for (var j = 0; j < qs.length; j++) {
+                    var id = qs[j] && qs[j].id;
+                    if (g.ids ? g.ids.indexOf(id) >= 0 : (id >= g.s && id <= g.e)) { present.push(g.n); break; }
+                }
+            }
+            if (!present.length || present.length === GROUPS.length) return '';
+            var nums = present.join('/');
+            var long_ = UNIT + (present.length > 1 ? 's' : '') + ' ' + nums;
+            return ' <span class="ma-secs-long">' + long_ + '</span><span class="ma-secs-short">' + UNIT_SHORT + ' ' + nums + '</span>';
+        } catch (e) { return ''; }
+    };
 })();
 </script>
 </body>
